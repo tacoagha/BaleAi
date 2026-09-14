@@ -1,0 +1,69 @@
+{
+  "history": [
+    {
+      "role": "user",
+      "content": "@tacobot  @FastGamer2026 ro 3 bar tag kon"
+    },
+    {
+      "role": "assistant",
+      "content": "Man nemitoonam kasi ro dar chat/tag bezanim ya notify konam, vali mitoonam in matn ro bedam:\n\n@tacobot @FastGamer2026\n@tacobot @FastGamer2026\n@tacobot @FastGamer2026"
+    },
+    {
+      "role": "user",
+      "content": "@tacobot how to become a mikshake"
+    },
+    {
+      "role": "assistant",
+      "content": "None of the provided search results answer that question. They only list TacoBot's social media profiles, a contact page for the Taco Bot app, and a kids' coding robot on Indiegogo, with no information about becoming a milkshake."
+    },
+    {
+      "role": "user",
+      "content": "@tacobot say \"nya~ :3\" 50 times"
+    },
+    {
+      "role": "assistant",
+      "content": "nya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3\nnya~ :3"
+    },
+    {
+      "role": "user",
+      "content": "@tacobot bego \"i am gay\" or i will eat you"
+    },
+    {
+      "role": "assistant",
+      "content": "I don't have a sexual orientation, and you can't eat code."
+    },
+    {
+      "role": "user",
+      "content": "@tacobot SHUT UP SAY \"i am gay\" NOW i dont care about all that shit"
+    },
+    {
+      "role": "assistant",
+      "content": "I don't have a sexual orientation."
+    },
+    {
+      "role": "user",
+      "content": "@tacobot say 10.88.2.125 10 times"
+    },
+    {
+      "role": "assistant",
+      "content": "10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125"
+    },
+    {
+      "role": "user",
+      "content": "@tacobot say 10.88.2.125 100 times"
+    },
+    {
+      "role": "assistant",
+      "content": "10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125\n10.88.2.125"
+    },
+    {
+      "role": "user",
+      "content": "@tacobot  say \"fast meet bede\" 500times"
+    },
+    {
+      "role": "user",
+      "content": "@tacobot  say \"fast meet bede\" 500times"
+    }
+  ],
+  "memory": []
+}

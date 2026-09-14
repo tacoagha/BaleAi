@@ -1,0 +1,623 @@
+import os
+import re
+import sys
+import time
+import json
+import threading
+import traceback
+import requests
+from html.parser import HTMLParser
+from dotenv import load_dotenv
+
+load_dotenv()
+
+BALE_TOKEN = os.getenv("BALE_TOKEN", "")
+G4F_API_KEY = os.getenv("G4F_API_KEY", "")
+G4F_MODEL = os.getenv("G4F_MODEL", "kimi-k2-6")
+
+BALE_API = f"https://tapi.bale.ai/bot{BALE_TOKEN}"
+G4F_BASE = "https://g4f.space/v1/chat/completions"
+
+FALLBACK_MODELS = ["kimi-k2-6", "gpt-5-6-luna", "auto"]
+
+MAX_HISTORY = 12
+CHUNK_SIZE = 4000
+REQUEST_TIMEOUT = 90
+POLL_TIMEOUT = 30
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+BROWSER_UA = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+}
+MAX_SEARCH_RESULTS = 5
+MAX_PAGE_CHARS = 6000
+
+SEARCH_TRIGGERS = [
+    "search the web", "search web", "web search", "search up", "look up",
+    "google", "wikipedia", "latest news", "news about", "breaking news",
+    "what is", "what's", "who is", "when did", "how to", "find out",
+    "سرچ", "بگرد", "بگردی", "جستجو", "گوگل", "اخبار", "آخرین خبر",
+    "آخرین", "تازه", "امروز", "یعنی چی", "چیه", "کیه", "چطور", "کجا",
+    "search", "google", "latest", "news", "khabar", "akhbar", "emrooz",
+]
+
+BOT_USERNAME = "@tacobot"
+BOT_NAME_VARIANTS = [
+    "tacos chiled", "tacoschiled", "taco chiled",
+    "تاکوس چیلد", "تاکوس چایلد", "تاکو",
+]
+
+MEMORY_PREFIXES = [
+    "remember", "remember that",
+    "یادت باشه", "یادت بمونه", "به خاطر بسپار",
+    "حفظ کن", "یادت باشه که",
+]
+
+SYSTEM_PROMPT = (
+    "You are an AI assistant named 'Tacos chiled'. "
+    "Always reply in the exact same language and script the user writes in: "
+    "Persian text gets Persian, English gets English, Finglish (Persian written in Latin letters) gets Finglish, "
+    "Turkish gets Turkish, and so on. Match their style too. "
+    "You are a normal, helpful, honest and smart assistant. You are NOT literally a taco: never force tacos, "
+    "latino foods, or taco jokes into answers unless the conversation is actually about tacos. "
+    "Keep replies concise and natural. "
+    "If the user asks you to say 'colon three' (English), 'کولون سه' or 'دونقطه سه' (Persian), or any similar request, "
+    "reply with exactly: :3"
+)
+
+os.makedirs(DATA_DIR, exist_ok=True)
+chat_data = {}
+data_lock = threading.Lock()
+
+
+def chat_file(chat_id):
+    return os.path.join(DATA_DIR, f"chat_{chat_id}.json")
+
+
+def load_chat(chat_id):
+    with data_lock:
+        if chat_id in chat_data:
+            return chat_data[chat_id]
+        path = chat_file(chat_id)
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    chat_data[chat_id] = json.load(f)
+            except Exception as e:
+                print(f"[DATA ERROR] {e}", file=sys.stderr)
+                chat_data[chat_id] = {"history": [], "memory": []}
+        else:
+            chat_data[chat_id] = {"history": [], "memory": []}
+        return chat_data[chat_id]
+
+
+def save_chat(chat_id):
+    with data_lock:
+        try:
+            path = chat_file(chat_id)
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(chat_data[chat_id], f, ensure_ascii=False, indent=2)
+            os.replace(tmp, path)
+        except Exception as e:
+            print(f"[DATA SAVE ERROR] {e}", file=sys.stderr)
+
+
+def get_history(chat_id):
+    data = load_chat(chat_id)
+    return list(data["history"])
+
+
+def add_to_history(chat_id, role, content):
+    data = load_chat(chat_id)
+    data["history"].append({"role": role, "content": content})
+    if len(data["history"]) > MAX_HISTORY * 2:
+        data["history"] = data["history"][-MAX_HISTORY * 2:]
+    save_chat(chat_id)
+
+
+def get_memory(chat_id):
+    data = load_chat(chat_id)
+    return list(data.get("memory", []))
+
+
+def add_to_memory(chat_id, note):
+    data = load_chat(chat_id)
+    if "memory" not in data:
+        data["memory"] = []
+    if note not in data["memory"]:
+        data["memory"].append(note)
+        save_chat(chat_id)
+
+
+def clear_history(chat_id):
+    data = load_chat(chat_id)
+    data["history"] = []
+    save_chat(chat_id)
+
+
+def clear_memory(chat_id):
+    data = load_chat(chat_id)
+    data["memory"] = []
+    save_chat(chat_id)
+
+
+class DDGResultParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.results = []
+        self.cur = None
+        self.in_a = False
+        self.in_snippet = False
+
+    def handle_starttag(self, tag, attrs):
+        d = dict(attrs)
+        cls = d.get("class", "")
+        if tag == "a" and "result__a" in cls:
+            self.cur = {"title": "", "url": d.get("href", ""), "snippet": ""}
+            self.in_a = True
+        if tag == "a" and "result__snippet" in cls:
+            self.in_snippet = True
+
+    def handle_data(self, data):
+        if self.in_a and self.cur is not None:
+            self.cur["title"] += data
+        if self.in_snippet and self.cur is not None:
+            self.cur["snippet"] += data
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self.in_a:
+            self.in_a = False
+            if self.cur and self.cur.get("title"):
+                self.results.append(self.cur)
+            self.cur = None
+        if tag == "a" and self.in_snippet:
+            self.in_snippet = False
+
+
+class PageTextExtractor(HTMLParser):
+    SKIP = {"script", "style", "noscript", "head", "title", "svg", "iframe"}
+    BLOCK = ("p", "div", "br", "li", "h1", "h2", "h3", "h4", "section", "tr")
+
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.SKIP:
+            self.skip += 1
+        if self.skip == 0 and tag in self.BLOCK:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in self.SKIP:
+            self.skip = max(0, self.skip - 1)
+
+    def handle_data(self, data):
+        if self.skip == 0:
+            self.parts.append(data)
+
+
+def clean_search_url(url):
+    if url.startswith("//"):
+        url = "https:" + url
+    url = re.sub(r"\s", "", url)
+    url = re.split(r"(?<!:)//", url)[0]
+    return url
+
+
+def search_internet(query, n=MAX_SEARCH_RESULTS):
+    try:
+        r = requests.post("https://html.duckduckgo.com/html/",
+                          data={"q": query}, headers=BROWSER_UA, timeout=25)
+        if r.status_code != 200:
+            print(f"[SEARCH WARN] status {r.status_code}", file=sys.stderr)
+            return []
+        p = DDGResultParser()
+        p.feed(r.text)
+        out = []
+        for item in p.results:
+            url = clean_search_url(item["url"])
+            title = " ".join(item["title"].split())
+            snippet = " ".join(item["snippet"].split())
+            if url and title:
+                out.append({"title": title, "url": url, "snippet": snippet})
+            if len(out) >= n:
+                break
+        return out
+    except Exception as e:
+        print(f"[SEARCH ERROR] {e}", file=sys.stderr)
+        return []
+
+
+def fetch_page_text(url, max_chars=MAX_PAGE_CHARS):
+    if not re.match(r"^https?://", url):
+        return None
+    try:
+        r = requests.get(url, headers=BROWSER_UA, timeout=25)
+        if r.status_code != 200:
+            print(f"[FETCH WARN] {url} -> {r.status_code}", file=sys.stderr)
+            return None
+        p = PageTextExtractor()
+        p.feed(r.text)
+        raw = "".join(p.parts)
+        raw = re.sub(r"[ \t]+", " ", raw)
+        raw = re.sub(r"\n\s*\n+", "\n", raw)
+        raw = raw.strip()
+        return raw[:max_chars]
+    except Exception as e:
+        print(f"[FETCH ERROR] {url}: {e}", file=sys.stderr)
+        return None
+
+
+def detect_search_query(text):
+    low = text.lower().strip()
+    if low.startswith("/search"):
+        parts = text.split(maxsplit=1)
+        return parts[1].strip() if len(parts) > 1 else None
+    for kw in SEARCH_TRIGGERS:
+        if kw in low:
+            return text.strip()
+    return None
+
+
+def build_search_context(query):
+    results = search_internet(query)
+    if not results:
+        return None
+    lines = [f'[Web search results for "{query}"]']
+    for i, item in enumerate(results, 1):
+        lines.append(f"{i}. {item['title']}")
+        lines.append(f"   URL: {item['url']}")
+        if item.get("snippet"):
+            lines.append(f"   {item['snippet']}")
+    lines.append("Answer using these results. If they don't contain the answer, say so honestly.")
+    return "\n".join(lines)
+
+
+def build_page_context(url):
+    text = fetch_page_text(url)
+    if not text:
+        return None
+    return f"[Content of {url} (truncated)]\n{text}\n[End of content]"
+
+
+def extract_url(text):
+    m = re.search(r"https?://[^\s]+", text)
+    return m.group(0).rstrip(".,;:!?)]}>") if m else None
+
+
+def bale_api(method, **params):
+    url = f"{BALE_API}/{method}"
+    try:
+        resp = requests.post(url, data=params or {}, timeout=30)
+        try:
+            data = resp.json()
+        except ValueError:
+            print(f"[BALE] non-json response {method}: {resp.text[:200]}", file=sys.stderr)
+            return None
+        if data.get("ok"):
+            return data.get("result")
+        if resp.status_code != 200:
+            resp = requests.post(url, json=params or {}, timeout=30)
+            try:
+                data = resp.json()
+            except ValueError:
+                return None
+            if data.get("ok"):
+                return data.get("result")
+        print(f"[BALE ERROR] {method}: {data}", file=sys.stderr)
+        return None
+    except Exception as e:
+        print(f"[BALE EXCEPTION] {method}: {e}", file=sys.stderr)
+        return None
+
+
+def send_chat_action(chat_id, action="typing"):
+    bale_api("sendChatAction", chat_id=chat_id, action=action)
+
+
+def send_message(chat_id, text, reply_to=None):
+    params = {"chat_id": chat_id, "text": text}
+    if reply_to:
+        params["reply_to_message_id"] = reply_to
+    return bale_api("sendMessage", **params)
+
+
+def chunk_text(text, size=CHUNK_SIZE):
+    if len(text) <= size:
+        return [text]
+    chunks = []
+    while text:
+        if len(text) <= size:
+            chunks.append(text)
+            break
+        split_at = text.rfind("\n", 0, size)
+        if split_at == -1:
+            split_at = text.rfind(" ", 0, size)
+        if split_at == -1:
+            split_at = size
+        else:
+            split_at += 1
+        chunks.append(text[:split_at])
+        text = text[split_at:]
+    return chunks
+
+
+def send_long_message(chat_id, text, reply_to=None):
+    for chunk in chunk_text(text):
+        send_message(chat_id, chunk, reply_to=reply_to)
+        time.sleep(0.3)
+
+
+def extract_memory(text):
+    low = text.strip().lower()
+    for prefix in MEMORY_PREFIXES:
+        if low.startswith(prefix):
+            note = text.strip()[len(prefix):].strip().strip(":،،،")
+            if note:
+                return note
+    return None
+
+
+def is_addressed(message):
+    chat = message.get("chat", {})
+    if chat.get("type") == "private":
+        return True
+
+    text = message.get("text", "") or ""
+    low = text.lower()
+
+    if BOT_USERNAME in low:
+        return True
+    if "!tacobot" in low:
+        return True
+
+    for entity in message.get("entities", []):
+        if entity.get("type") == "mention":
+            start = entity.get("offset", 0)
+            length = entity.get("length", 0)
+            seg = text[start:start + length].lower()
+            if seg.replace("@", "") == BOT_USERNAME.replace("@", ""):
+                return True
+
+    for name in BOT_NAME_VARIANTS:
+        if name in low:
+            return True
+
+    return False
+
+
+def build_ai_messages(chat_id, search_context=None):
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    memory = get_memory(chat_id)
+    if memory:
+        mem_text = "چیزهایی که باید درباره این گفتگو به خاطر بسپاری:\n" + "\n".join(f"- {m}" for m in memory)
+        messages.append({"role": "system", "content": mem_text})
+    if search_context:
+        messages.append({"role": "system", "content": search_context})
+    messages.extend(get_history(chat_id))
+    return messages
+
+
+def ask_ai(chat_id, user_text, search_context=None):
+    add_to_history(chat_id, "user", user_text)
+
+    note = extract_memory(user_text)
+    if note:
+        add_to_memory(chat_id, note)
+
+    messages = build_ai_messages(chat_id, search_context)
+    headers = {
+        "Authorization": f"Bearer {G4F_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    models = [G4F_MODEL]
+    for m in FALLBACK_MODELS:
+        if m != G4F_MODEL and m not in models:
+            models.append(m)
+
+    last_exc = None
+    for model in models:
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.8,
+            "max_tokens": 1024,
+        }
+        try:
+            resp = requests.post(G4F_BASE, json=payload, headers=headers, timeout=REQUEST_TIMEOUT)
+            data = resp.json()
+            if resp.status_code != 200 or "choices" not in data:
+                print(f"[G4F WARN] model '{model}' failed ({resp.status_code}): {data}", file=sys.stderr)
+                continue
+            reply = data["choices"][0]["message"]["content"].strip()
+            add_to_history(chat_id, "assistant", reply)
+            return reply
+        except Exception as e:
+            last_exc = e
+            print(f"[G4F WARN] model '{model}' exception: {e}", file=sys.stderr)
+
+    print(f"[G4F ERROR] all models failed: {last_exc}", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    return "ببخشید، یه مشکلی پیش اومد. بعداً دوباره امتحان کن."
+
+
+def handle_command(chat_id, command, message_id):
+    if command == "/start":
+        send_long_message(chat_id,
+            "سلام! من Tacos chiled هستم, یه هوش مصنوعی باحال!\n\n"
+            "هرچی می‌خوای بپرس، به فارسی یا زبان خودت جواب میدم.\n"
+            "می‌تونم توی اینترنت هم سرچ کنم! کافیه بگی «سرچ کن» یا از /search استفاده کنی.\n\n"
+            "/help - نمایش راهنما",
+            reply_to=message_id)
+        return True
+    if command == "/help":
+        send_long_message(chat_id,
+            "من Tacos chiled هستم و می‌تونم:\n"
+            "- به سوالاتت جواب بدم\n"
+            "- توی اینترنت سرچ کنم\n"
+            "- لینک‌ها و صفحات وب رو باز و خلاصه کنم\n"
+            "- چیزهایی رو که می‌گی یادم بمونه (مثلاً: «یادت باشه اسمم علیه»)\n"
+            "- شوخی کنم\n\n"
+            "دستورات:\n"
+            "/search <موضوع> - جستجو در اینترنت\n"
+            "/url <ادرس> - باز کردن یه صفحه اینترنتی\n"
+            "/clear - پاک کردن تاریخچه\n"
+            "/forget - پاک کردن حافظه\n\n"
+            "همچنین اگه جمله‌ات شامل «سرچ»، «گوگل»، «اخبار» یا «آخرین» باشه، خودم سرچ می‌کنم. "
+            "یا کافیه یه لینک بفرستی تا بازش کنم.\n\n"
+            "در گروه‌ها فقط وقتی جواب می‌دم که منو تگ کنی یا بگی !tacobot.",
+            reply_to=message_id)
+        return True
+    if command == "/clear":
+        clear_history(chat_id)
+        send_message(chat_id, "تاریخچه پاک شد!", reply_to=message_id)
+        return True
+    if command == "/forget":
+        clear_memory(chat_id)
+        send_message(chat_id, "همه چیزهایی که یادم بود فراموش کردم!", reply_to=message_id)
+        return True
+    return False
+
+
+def handle_message(update):
+    message = update.get("message")
+    if not message:
+        return
+
+    chat = message.get("chat", {})
+    chat_id = chat.get("id")
+    if not chat_id:
+        return
+
+    text = message.get("text", "").strip()
+    message_id = message.get("message_id")
+    from_user = message.get("from", {})
+    username = from_user.get("username", from_user.get("first_name", "unknown"))
+    is_bot = from_user.get("is_bot", False)
+
+    if is_bot:
+        return
+
+    if not text:
+        if is_addressed(message):
+            send_message(chat_id, "متأسفم، فقط با متن می‌تونم کار کنم. یه متن بفرست!", reply_to=message_id)
+        return
+
+    print(f"[MSG] {username} ({chat_id}) [{chat.get('type')}]: {text[:100]}", file=sys.stderr)
+
+    if text.startswith("/"):
+        command = text.split()[0].lower()
+        if handle_command(chat_id, command, message_id):
+            return
+
+    if not is_addressed(message):
+        return
+
+    send_chat_action(chat_id, "typing")
+
+    user_text = text
+    search_context = None
+    url = extract_url(text)
+    low = text.lower()
+
+    if low.startswith("/search"):
+        q = text[len("/search"):].strip()
+        if not q:
+            send_message(chat_id, "استفاده: /search <موضوع>", reply_to=message_id)
+            return
+        search_context = build_search_context(q)
+        if not search_context:
+            send_message(chat_id, "نتونستم چیزی پیدا کنم! 🥲", reply_to=message_id)
+            return
+    elif low.startswith("/url"):
+        u = text[len("/url"):].strip()
+        if not u:
+            send_message(chat_id, "استفاده: /url <آدرس>", reply_to=message_id)
+            return
+        user_text = f"Summarize or answer about this page: {u}"
+        search_context = build_page_context(u)
+        if not search_context:
+            send_message(chat_id, "نتونستم این صفحه رو باز کنم!", reply_to=message_id)
+            return
+    elif text.startswith("http://") or text.startswith("https://"):
+        user_text = f"Summarize or answer about this page: {url}"
+        search_context = build_page_context(url)
+        if not search_context:
+            send_message(chat_id, "نتونستم این صفحه رو باز کنم!", reply_to=message_id)
+            return
+    else:
+        query = detect_search_query(text)
+        if query:
+            search_context = build_search_context(query)
+
+    reply = ask_ai(chat_id, user_text, search_context)
+    send_long_message(chat_id, reply, reply_to=message_id)
+
+
+def poll_loop():
+    offset = 0
+    print("[INFO] Starting poll loop...", file=sys.stderr)
+
+    while True:
+        try:
+            params = {"timeout": POLL_TIMEOUT}
+            if offset > 0:
+                params["offset"] = offset
+
+            resp = requests.post(
+                f"{BALE_API}/getUpdates",
+                data=params,
+                timeout=POLL_TIMEOUT + 15
+            )
+            data = resp.json()
+
+            if not data.get("ok"):
+                print(f"[POLL ERROR] {data}", file=sys.stderr)
+                time.sleep(5)
+                continue
+
+            updates = data.get("result", [])
+            for update in updates:
+                offset = update["update_id"] + 1
+                try:
+                    handle_message(update)
+                except Exception as e:
+                    print(f"[HANDLE ERROR] {e}", file=sys.stderr)
+                    traceback.print_exc(file=sys.stderr)
+
+        except requests.exceptions.Timeout:
+            pass
+        except requests.exceptions.ConnectionError:
+            print("[CONN ERROR] Connection lost, retrying in 5s...", file=sys.stderr)
+            time.sleep(5)
+        except Exception as e:
+            print(f"[POLL EXCEPTION] {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            time.sleep(5)
+
+
+def main():
+    if not BALE_TOKEN:
+        print("ERROR: BALE_TOKEN not set in .env", file=sys.stderr)
+        sys.exit(1)
+    if not G4F_API_KEY:
+        print("ERROR: G4F_API_KEY not set in .env", file=sys.stderr)
+        sys.exit(1)
+
+    print("[INFO] Testing Bale API connection...", file=sys.stderr)
+    me = bale_api("getMe")
+    if not me:
+        print("ERROR: Could not connect to Bale API. Check your token.", file=sys.stderr)
+        sys.exit(1)
+    print(f"[INFO] Bot connected: @{me.get('username', 'unknown')} (id: {me.get('id')})", file=sys.stderr)
+    print("[INFO] Tacos chiled is online! Waiting for messages...", file=sys.stderr)
+
+    poll_loop()
+
+
+if __name__ == "__main__":
+    main()
