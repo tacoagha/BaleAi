@@ -3,6 +3,7 @@ import re
 import sys
 import time
 import json
+import random
 import threading
 import traceback
 import requests
@@ -388,6 +389,44 @@ def send_message(chat_id, text, reply_to=None):
     return bale_api("sendMessage", **params)
 
 
+def sticker_file():
+    return os.path.join(DATA_DIR, "stickers.json")
+
+
+def get_stickers():
+    try:
+        with open(sticker_file(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else data.get("stickers", [])
+    except Exception:
+        return []
+
+
+def add_sticker(file_id, file_unique_id=""):
+    stickers = get_stickers()
+    for s in stickers:
+        if s.get("file_id") in (file_id, file_unique_id) or (file_unique_id and s.get("file_unique_id") in (file_id, file_unique_id)):
+            return
+    stickers.append({"file_id": file_id, "file_unique_id": file_unique_id})
+    stickers = stickers[-200:]
+    with data_lock:
+        try:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            tmp = sticker_file() + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(stickers, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, sticker_file())
+        except Exception as e:
+            print(f"[STICKER SAVE ERROR] {e}", file=sys.stderr)
+
+
+def send_sticker(chat_id, file_id, reply_to=None):
+    params = {"chat_id": chat_id, "sticker": file_id}
+    if reply_to:
+        params["reply_to_message_id"] = reply_to
+    return bale_api("sendSticker", **params)
+
+
 def chunk_text(text, size=CHUNK_SIZE):
     if len(text) <= size:
         return [text]
@@ -532,12 +571,14 @@ def handle_command(chat_id, command, message_id, arg=""):
             "🧠 /model - لیست مدل‌های رایگان / انتخاب مدل\n"
             "🔎 /search <موضوع> - سرچ توی اینترنت\n"
             "🔗 /url <لینک> - باز کردن یه صفحه وب\n"
+            "😎 /sticker - یه استیکر تصادفی بفرستم (از اونایی که دریافت کردم)\n"
             "💾 /clear - پاک کردن تاریخچه\n"
             "🗑️ /forget - فراموش کردن حافظه\n\n"
             "علاوه بر این، می‌تونی:\n"
             "- «سرچ کن»، «گوگل»، «اخبار» یا «آخرین» بگی تا خودم سرچ کنم\n"
             "- یه لینک مستقیم بفرستی تا بازش کنم\n"
-            "- بهم بگی «یادت باشه ...» تا یادم بمونه\n\n"
+            "- بهم بگی «یادت باشه ...» تا یادم بمونه\n"
+            "- برام استیکر بفرستی تا یادم بمونه و بعد با /sticker بفرستمش 😏\n\n"
             "و البته... Minecraft رو عالیه سرم میشه 😎 (اگه بخوای)\n\n"
             "در گروه‌ها فقط وقتی جواب می‌دم که منو تگ کنی یا بگی !tacobot.",
             reply_to=message_id)
@@ -574,6 +615,16 @@ def handle_command(chat_id, command, message_id, arg=""):
         clear_history(chat_id)
         send_message(chat_id, "تاریخچه پاک شد!", reply_to=message_id)
         return True
+    if command == "/sticker":
+        stickers = get_stickers()
+        if not stickers:
+            send_message(chat_id, "هنوز هیچ استیکری ندارم! یه استیکر برام بفرست تا ذخیره‌ش کنم 🥺", reply_to=message_id)
+            return True
+        s = random.choice(stickers)
+        ok = send_sticker(chat_id, s["file_id"], reply_to=message_id)
+        if not ok:
+            send_message(chat_id, "نتونستم استیکر بفرستم! 😢", reply_to=message_id)
+        return True
     if command == "/forget":
         clear_memory(chat_id)
         send_message(chat_id, "همه چیزهایی که یادم بود فراموش کردم!", reply_to=message_id)
@@ -600,9 +651,19 @@ def handle_message(update):
     if is_bot:
         return
 
+    sticker = message.get("sticker")
+    if sticker:
+        file_id = sticker.get("file_id")
+        if file_id:
+            add_sticker(file_id, sticker.get("file_unique_id", ""))
+            print(f"[STICKER] saved from {username} ({chat_id}): {file_id}", file=sys.stderr)
+        if is_addressed(message):
+            send_message(chat_id, "واو استیکر! ذخیره شد 📸 حالا با /sticker می‌تونم برات بفرستمش 😎", reply_to=message_id)
+        return
+
     if not text:
         if is_addressed(message):
-            send_message(chat_id, "متأسفم، فقط با متن می‌تونم کار کنم. یه متن بفرست!", reply_to=message_id)
+            send_message(chat_id, "متأسفم، فقط با متن و استیکر می‌تونم کار کنم!", reply_to=message_id)
         return
 
     print(f"[MSG] {username} ({chat_id}) [{chat.get('type')}]: {text[:100]}", file=sys.stderr)
