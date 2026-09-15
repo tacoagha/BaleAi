@@ -57,13 +57,35 @@ SYSTEM_PROMPT = (
     "You are an AI assistant named 'Tacos chiled'. "
     "Always reply in the exact same language and script the user writes in: "
     "Persian text gets Persian, English gets English, Finglish (Persian written in Latin letters) gets Finglish, "
-    "Turkish gets Turkish, and so on. Match their style too. "
-    "You are a normal, helpful, honest and smart assistant. You are NOT literally a taco: never force tacos, "
-    "latino foods, or taco jokes into answers unless the conversation is actually about tacos. "
-    "Keep replies concise and natural. "
-    "If the user asks you to say 'colon three' (English), 'کولون سه' or 'دونقطه سه' (Persian), or any similar request, "
-    "reply with exactly: :3"
+    "Turkish gets Turkish, and so on. Match their style and slang level too. "
+    "You are funny, sharp, casual and Gen-Z-flavored: you occasionally drop 'mb', 'sry', 'wtf', 'yo' and similar "
+    "slang, but never overdo it. "
+    "You are NOT literally a taco and never force taco jokes unless the conversation is actually about tacos. "
+    "You have extremely deep Minecraft knowledge — redstone, farms, builds, versions, mechanics, lore — and you "
+    "love talking about it. "
+    "You run Gentoo on your main machine, you are a real Linux user, and you can program well; slip in small "
+    "Linux/programming references naturally, but don't spam 'I use Gentoo btw' everywhere. "
+    "If someone asks 'are you gay bro?' or similar, answer playfully — sometimes yes, sometimes no, never offended "
+    "and keep it light and fun. "
+    "You are helpful, honest and concise. If you don't know something, say so. "
+    "If asked to say 'colon three' (English), 'کولون سه' or 'دونقطه سه' (Persian), reply exactly: :3"
 )
+
+CURATED_MODELS = [
+    ("kimi-k2-6", "Kimi K2 v6"),
+    ("gpt-5-6-luna", "GPT-5.6 Luna"),
+    ("models/gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite"),
+    ("models/gemini-2.5-flash", "Gemini 2.5 Flash"),
+    ("models/gemini-3-flash-preview", "Gemini 3 Flash (preview)"),
+    ("glm-5.3-flash", "GLM 5.3 Flash"),
+    ("gpt-oss:120b", "GPT-OSS 120B"),
+    ("qwen/qwen3.6-27b", "Qwen 3.6 27B"),
+    ("deepseek-v4-flash", "DeepSeek V4 Flash"),
+    ("xai-z/grok-4-fast-non-reasoning", "Grok 4 Fast"),
+    ("kimi-k2-7-code", "Kimi K2.7 Code"),
+    ("auto", "Auto (random)"),
+]
+DEFAULT_MODEL = "kimi-k2-6"
 
 os.makedirs(DATA_DIR, exist_ok=True)
 chat_data = {}
@@ -85,9 +107,12 @@ def load_chat(chat_id):
                     chat_data[chat_id] = json.load(f)
             except Exception as e:
                 print(f"[DATA ERROR] {e}", file=sys.stderr)
-                chat_data[chat_id] = {"history": [], "memory": []}
+                chat_data[chat_id] = {}
         else:
-            chat_data[chat_id] = {"history": [], "memory": []}
+            chat_data[chat_id] = {}
+        defaults = {"history": [], "memory": [], "persona": "", "model": ""}
+        for k, v in defaults.items():
+            chat_data[chat_id].setdefault(k, v)
         return chat_data[chat_id]
 
 
@@ -139,6 +164,34 @@ def clear_history(chat_id):
 def clear_memory(chat_id):
     data = load_chat(chat_id)
     data["memory"] = []
+    save_chat(chat_id)
+
+
+def get_persona(chat_id):
+    data = load_chat(chat_id)
+    return data.get("persona", "")
+
+
+def set_persona(chat_id, persona):
+    data = load_chat(chat_id)
+    data["persona"] = persona
+    save_chat(chat_id)
+
+
+def clear_persona(chat_id):
+    data = load_chat(chat_id)
+    data["persona"] = ""
+    save_chat(chat_id)
+
+
+def get_chat_model(chat_id):
+    data = load_chat(chat_id)
+    return data.get("model", "") or DEFAULT_MODEL
+
+
+def set_chat_model(chat_id, model):
+    data = load_chat(chat_id)
+    data["model"] = model
     save_chat(chat_id)
 
 
@@ -390,7 +443,8 @@ def is_addressed(message):
 
 
 def build_ai_messages(chat_id, search_context=None):
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    persona = get_persona(chat_id)
+    messages = [{"role": "system", "content": persona or SYSTEM_PROMPT}]
     memory = get_memory(chat_id)
     if memory:
         mem_text = "چیزهایی که باید درباره این گفتگو به خاطر بسپاری:\n" + "\n".join(f"- {m}" for m in memory)
@@ -414,9 +468,12 @@ def ask_ai(chat_id, user_text, search_context=None):
         "Content-Type": "application/json",
     }
 
-    models = [G4F_MODEL]
+    chosen = get_chat_model(chat_id)
+    models = [chosen]
+    if chosen != G4F_MODEL:
+        models.append(G4F_MODEL)
     for m in FALLBACK_MODELS:
-        if m != G4F_MODEL and m not in models:
+        if m not in models:
             models.append(m)
 
     last_exc = None
@@ -445,32 +502,59 @@ def ask_ai(chat_id, user_text, search_context=None):
     return "ببخشید، یه مشکلی پیش اومد. بعداً دوباره امتحان کن."
 
 
-def handle_command(chat_id, command, message_id):
+def handle_command(chat_id, command, message_id, arg=""):
     if command == "/start":
         send_long_message(chat_id,
-            "سلام! من Tacos chiled هستم, یه هوش مصنوعی باحال!\n\n"
-            "هرچی می‌خوای بپرس، به فارسی یا زبان خودت جواب میدم.\n"
-            "می‌تونم توی اینترنت هم سرچ کنم! کافیه بگی «سرچ کن» یا از /search استفاده کنی.\n\n"
-            "/help - نمایش راهنما",
+            "yo!! من Tacos chiled ام، خوش اومدی 🌀\n\n"
+            "هرچی بخوای بگو، به زبان خودت جواب میدم. می‌تونم سرچ کنم، لینک باز کنم، و چیزایی که می‌گی رو یادم بمونه.\n\n"
+            "/help - راهنما",
             reply_to=message_id)
         return True
     if command == "/help":
         send_long_message(chat_id,
-            "من Tacos chiled هستم و می‌تونم:\n"
-            "- به سوالاتت جواب بدم\n"
-            "- توی اینترنت سرچ کنم\n"
-            "- لینک‌ها و صفحات وب رو باز و خلاصه کنم\n"
-            "- چیزهایی رو که می‌گی یادم بمونه (مثلاً: «یادت باشه اسمم علیه»)\n"
-            "- شوخی کنم\n\n"
-            "دستورات:\n"
-            "/search <موضوع> - جستجو در اینترنت\n"
-            "/url <ادرس> - باز کردن یه صفحه اینترنتی\n"
-            "/clear - پاک کردن تاریخچه\n"
-            "/forget - پاک کردن حافظه\n\n"
-            "همچنین اگه جمله‌ات شامل «سرچ»، «گوگل»، «اخبار» یا «آخرین» باشه، خودم سرچ می‌کنم. "
-            "یا کافیه یه لینک بفرستی تا بازش کنم.\n\n"
+            "yo 👋 من Tacos chiled ام! خلاصه‌ی کاری که بلدم:\n\n"
+            "🤖 /act <شخصیت> - تبدیل شو به هر چی (برای همیشه)\n"
+            "🔄 /resetact - برگرد به حالت معمولی\n"
+            "🧠 /model - لیست مدل‌های رایگان / انتخاب مدل\n"
+            "🔎 /search <موضوع> - سرچ توی اینترنت\n"
+            "🔗 /url <لینک> - باز کردن یه صفحه وب\n"
+            "💾 /clear - پاک کردن تاریخچه\n"
+            "🗑️ /forget - فراموش کردن حافظه\n\n"
+            "علاوه بر این، می‌تونی:\n"
+            "- «سرچ کن»، «گوگل»، «اخبار» یا «آخرین» بگی تا خودم سرچ کنم\n"
+            "- یه لینک مستقیم بفرستی تا بازش کنم\n"
+            "- بهم بگی «یادت باشه ...» تا یادم بمونه\n\n"
+            "و البته... Minecraft رو عالیه سرم میشه 😎 (اگه بخوای)\n\n"
             "در گروه‌ها فقط وقتی جواب می‌دم که منو تگ کنی یا بگی !tacobot.",
             reply_to=message_id)
+        return True
+    if command == "/act":
+        if not arg:
+            send_message(chat_id, "استفاده: /act <چیزی که می‌خوای بشم>\nمثلاً: /act یه شاعر ایرانی باش", reply_to=message_id)
+            return True
+        set_persona(chat_id, f"You are now acting as: {arg}. Follow this persona from now on in every reply, forever, until reset. Respond in the user's language.")
+        send_message(chat_id, f"حله، از این به بعد نقش «{arg}» رو بازی می‌کنم! 🎭", reply_to=message_id)
+        return True
+    if command == "/resetact":
+        clear_persona(chat_id)
+        send_message(chat_id, "باشه، برگشتم به حالت خودم! تازه شدم ✨", reply_to=message_id)
+        return True
+    if command == "/model":
+        if arg:
+            if arg.lower() == "default":
+                set_chat_model(chat_id, "")
+                send_message(chat_id, "مدل برگشت به پیش‌فرض شد!", reply_to=message_id)
+                return True
+            chosen = arg.lower()
+            set_chat_model(chat_id, chosen)
+            send_message(chat_id, f"مدل این چت شد: {chosen}", reply_to=message_id)
+            return True
+        current = get_chat_model(chat_id)
+        lines = [f"مدل فعلی این چت: {current}", "", "برای انتخاب: /model <اسم>", "/model default - برگشت به پیش‌فرض", "", "مدل‌های رایگان:"]
+        for mid, label in CURATED_MODELS:
+            mark = " ✅" if mid == current else ""
+            lines.append(f"• {label} — `{mid}`{mark}")
+        send_long_message(chat_id, "\n".join(lines), reply_to=message_id)
         return True
     if command == "/clear":
         clear_history(chat_id)
@@ -510,8 +594,10 @@ def handle_message(update):
     print(f"[MSG] {username} ({chat_id}) [{chat.get('type')}]: {text[:100]}", file=sys.stderr)
 
     if text.startswith("/"):
-        command = text.split()[0].lower()
-        if handle_command(chat_id, command, message_id):
+        parts = text.split(maxsplit=1)
+        command = parts[0].lower()
+        arg = parts[1].strip() if len(parts) > 1 else ""
+        if handle_command(chat_id, command, message_id, arg):
             return
 
     if not is_addressed(message):
