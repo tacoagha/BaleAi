@@ -439,11 +439,64 @@ def add_sticker(file_id, file_unique_id=""):
             print(f"[STICKER SAVE ERROR] {e}", file=sys.stderr)
 
 
+def sticker_cache_path(file_id):
+    return os.path.join(DATA_DIR, "stickers", f"{file_id}.webp")
+
+
+def download_bale_file(file_id):
+    info = bale_api("getFile", file_id=file_id)
+    path = info.get("file_path") if info else None
+    if not path:
+        return None, None
+    url = f"https://tapi.bale.ai/file/bot{BALE_TOKEN}/{path}"
+    data = None
+    try:
+        r = requests.get(url, timeout=60)
+        if r.status_code == 200:
+            data = r.content
+            try:
+                os.makedirs(os.path.dirname(sticker_cache_path(file_id)), exist_ok=True)
+                with open(sticker_cache_path(file_id), "wb") as f:
+                    f.write(data)
+            except Exception as e:
+                print(f"[STICKER CACHE ERROR] {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"[BALE DOWNLOAD] {e}", file=sys.stderr)
+    return data, url
+
+
 def send_sticker(chat_id, file_id, reply_to=None):
-    params = {"chat_id": chat_id, "sticker": file_id}
+    params = {"chat_id": chat_id}
     if reply_to:
         params["reply_to_message_id"] = reply_to
-    return bale_api("sendSticker", **params)
+
+    ok = bale_api("sendSticker", sticker=file_id, **params)
+    if ok:
+        return ok
+    print(f"[STICKER] file_id failed, trying download URL + upload for {file_id}", file=sys.stderr)
+
+    data, url = download_bale_file(file_id)
+    if url:
+        ok = bale_api("sendSticker", sticker=url, **params)
+        if ok:
+            print("[STICKER] sent via download URL", file=sys.stderr)
+            return ok
+    if data:
+        try:
+            resp = requests.post(
+                f"{BALE_API}/sendSticker",
+                data=params,
+                files={"sticker": ("sticker.webp", data, "image/webp")},
+                timeout=60,
+            )
+            j = resp.json()
+            if j.get("ok"):
+                print("[STICKER] sent via multipart upload", file=sys.stderr)
+                return j.get("result")
+            print(f"[STICKER UPLOAD ERROR] {j}", file=sys.stderr)
+        except Exception as e:
+            print(f"[STICKER UPLOAD EXC] {e}", file=sys.stderr)
+    return None
 
 
 def chunk_text(text, size=CHUNK_SIZE):
