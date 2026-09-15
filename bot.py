@@ -152,6 +152,25 @@ def add_to_history(chat_id, role, content):
     save_chat(chat_id)
 
 
+def build_sticker_context(stickers):
+    if not stickers:
+        return None, {}
+    index = {}
+    lines = []
+    for i, s in enumerate(stickers[:30], 1):
+        index[i] = s["file_id"]
+        lines.append(f"[{i}] file_id: {s['file_id']}")
+    text = (
+        "You have a sticker collection and MAY react with a sticker when it makes sense (user asks for one, or a "
+        "reaction fits the vibe). Available stickers:\n" + "\n".join(lines) +
+        "\nTo send sticker N and then your message as two separate messages, reply like this: "
+        "<sticker n='N'/>your text here — the tag first, then your text right after it, no spaces. "
+        "The bot will send the sticker first and then your text. Only use numbers that exist in the list above. "
+        "If you don't want to use a sticker, just reply with plain text."
+    )
+    return text, index
+
+
 def get_memory(chat_id):
     data = load_chat(chat_id)
     return list(data.get("memory", []))
@@ -512,6 +531,9 @@ def ask_ai(chat_id, user_text, search_context=None):
         add_to_memory(chat_id, note)
 
     messages = [m for m in build_ai_messages(chat_id, search_context) if (m.get("content") or "").strip()]
+    sticker_ctx, sticker_index = build_sticker_context(get_stickers())
+    if sticker_ctx:
+        messages.append({"role": "system", "content": sticker_ctx})
     headers = {
         "Authorization": f"Bearer {G4F_API_KEY}",
         "Content-Type": "application/json",
@@ -545,14 +567,32 @@ def ask_ai(chat_id, user_text, search_context=None):
                 print(f"[G4F WARN] model '{model}' returned empty content", file=sys.stderr)
                 continue
             add_to_history(chat_id, "assistant", reply)
-            return reply
+            return reply, sticker_index
         except Exception as e:
             last_exc = e
             print(f"[G4F WARN] model '{model}' exception: {e}", file=sys.stderr)
 
     print(f"[G4F ERROR] all models failed: {last_exc}", file=sys.stderr)
     traceback.print_exc(file=sys.stderr)
-    return "ببخشید، یه مشکلی پیش اومد. بعداً دوباره امتحان کن."
+    return "ببخشید، یه مشکلی پیش اومد. بعداً دوباره امتحان کن.", sticker_index
+
+
+STICKER_TAG_RE = re.compile(r"<sticker\s+n=['\"]?(\d+)['\"]?\s*/?>")
+
+
+def send_reply_with_actions(chat_id, reply, sticker_index=None, reply_to=None):
+    sent_sticker = False
+    if sticker_index and STICKER_TAG_RE.search(reply):
+        for m in STICKER_TAG_RE.finditer(reply):
+            fid = sticker_index.get(int(m.group(1)))
+            if fid and send_sticker(chat_id, fid, reply_to=reply_to):
+                sent_sticker = True
+                time.sleep(0.3)
+        reply = STICKER_TAG_RE.sub("", reply).strip()
+    if reply:
+        send_long_message(chat_id, reply, reply_to=reply_to)
+        return True
+    return sent_sticker
 
 
 def handle_command(chat_id, command, message_id, arg=""):
@@ -572,6 +612,7 @@ def handle_command(chat_id, command, message_id, arg=""):
             "🔎 /search <موضوع> - سرچ توی اینترنت\n"
             "🔗 /url <لینک> - باز کردن یه صفحه وب\n"
             "😎 /sticker - یه استیکر تصادفی بفرستم (از اونایی که دریافت کردم)\n"
+            "📦 /stickerpack <نام> - یه پکیج استیکر کامل اضافه کنم\n"
             "💾 /clear - پاک کردن تاریخچه\n"
             "🗑️ /forget - فراموش کردن حافظه\n\n"
             "علاوه بر این، می‌تونی:\n"
@@ -618,12 +659,28 @@ def handle_command(chat_id, command, message_id, arg=""):
     if command == "/sticker":
         stickers = get_stickers()
         if not stickers:
-            send_message(chat_id, "هنوز هیچ استیکری ندارم! یه استیکر برام بفرست تا ذخیره‌ش کنم 🥺", reply_to=message_id)
+            send_message(chat_id, "هنوز هیچ استیکری ندارم! یه استیکر برام بفرست یا با /stickerpack یه پکیج بده 🥺", reply_to=message_id)
             return True
         s = random.choice(stickers)
         ok = send_sticker(chat_id, s["file_id"], reply_to=message_id)
         if not ok:
             send_message(chat_id, "نتونستم استیکر بفرستم! 😢", reply_to=message_id)
+        return True
+    if command == "/stickerpack":
+        if not arg:
+            send_message(chat_id, "استفاده: /stickerpack <نام پکیج>\nمثلاً: /stickerpack tacos_heart_by_tacobot", reply_to=message_id)
+            return True
+        result = bale_api("getStickerSet", name=arg)
+        if not result or not result.get("stickers"):
+            send_message(chat_id, "نتونستم همچین پکیجی پیدا کنم! 🥲", reply_to=message_id)
+            return True
+        before = len(get_stickers())
+        for s in result.get("stickers", []):
+            fid = s.get("file_id")
+            if fid:
+                add_sticker(fid, s.get("file_unique_id", ""))
+        count = len(result.get("stickers", []))
+        send_message(chat_id, f"پکیج استیکر اضافه شد! {count} تا استیکر (از {before} → {len(get_stickers())}) 😎", reply_to=message_id)
         return True
     if command == "/forget":
         clear_memory(chat_id)
@@ -715,8 +772,8 @@ def handle_message(update):
         if query:
             search_context = build_search_context(query)
 
-    reply = ask_ai(chat_id, user_text, search_context)
-    send_long_message(chat_id, reply, reply_to=message_id)
+    reply, sticker_index = ask_ai(chat_id, user_text, search_context)
+    send_reply_with_actions(chat_id, reply, sticker_index, reply_to=message_id)
 
 
 def poll_loop():
