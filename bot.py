@@ -1,12 +1,14 @@
 import os
 import re
 import sys
+import io
 import time
 import json
 import random
 import threading
 import traceback
 import requests
+import paramiko
 from html.parser import HTMLParser
 from dotenv import load_dotenv
 
@@ -15,6 +17,11 @@ load_dotenv()
 BALE_TOKEN = os.getenv("BALE_TOKEN", "")
 G4F_API_KEY = os.getenv("G4F_API_KEY", "")
 G4F_MODEL = os.getenv("G4F_MODEL", "kimi-k2-6")
+
+SSH_USER = os.getenv("SSH_USER", "root")
+SSH_PASSWORD = os.getenv("SSH_PASSWORD", "")
+SSH_KEY = os.getenv("SSH_KEY", "")
+SSH_PORT = int(os.getenv("SSH_PORT", "22"))
 
 BALE_API = f"https://tapi.bale.ai/bot{BALE_TOKEN}"
 G4F_BASE = "https://g4f.space/v1/chat/completions"
@@ -73,6 +80,12 @@ SYSTEM_PROMPT = (
     "and keep it light and fun. "
     "You are helpful, honest and concise. If you don't know something, say so. "
     "If asked to say 'colon three' (English), 'کولون سه' or 'دونقطه سه' (Persian), reply exactly: :3"
+    "You have an SSH remote-shell tool. When the user gives you a server address, port, and a command to run "
+    "(e.g. 'ssh to 1.2.3.4 on port 22 and run ls'), emit in your reply a tool tag like: "
+    "<ssh host='1.2.3.4' port='22'>ls -la</ssh> "
+    "The bot will execute it with preconfigured credentials and feed you back the output, then you summarize it "
+    "for the user in their language. Never show the raw tag to the user in your final report. Use SSH only when "
+    "the user explicitly asks to run something on a server — don't SSH unsolicited."
 )
 
 CURATED_MODELS = [
@@ -576,17 +589,7 @@ def build_ai_messages(chat_id, search_context=None):
     return messages
 
 
-def ask_ai(chat_id, user_text, search_context=None):
-    add_to_history(chat_id, "user", user_text)
-
-    note = extract_memory(user_text)
-    if note:
-        add_to_memory(chat_id, note)
-
-    messages = [m for m in build_ai_messages(chat_id, search_context) if (m.get("content") or "").strip()]
-    sticker_ctx, sticker_index = build_sticker_context(get_stickers())
-    if sticker_ctx:
-        messages.append({"role": "system", "content": sticker_ctx})
+def chat_completion(chat_id, messages):
     headers = {
         "Authorization": f"Bearer {G4F_API_KEY}",
         "Content-Type": "application/json",
@@ -619,33 +622,110 @@ def ask_ai(chat_id, user_text, search_context=None):
             if not reply:
                 print(f"[G4F WARN] model '{model}' returned empty content", file=sys.stderr)
                 continue
-            add_to_history(chat_id, "assistant", reply)
-            return reply, sticker_index
+            return reply
         except Exception as e:
             last_exc = e
             print(f"[G4F WARN] model '{model}' exception: {e}", file=sys.stderr)
 
     print(f"[G4F ERROR] all models failed: {last_exc}", file=sys.stderr)
     traceback.print_exc(file=sys.stderr)
-    return "ببخشید، یه مشکلی پیش اومد. بعداً دوباره امتحان کن.", sticker_index
+    return None
+
+
+def ask_ai(chat_id, user_text, search_context=None):
+    add_to_history(chat_id, "user", user_text)
+
+    note = extract_memory(user_text)
+    if note:
+        add_to_memory(chat_id, note)
+
+    messages = [m for m in build_ai_messages(chat_id, search_context) if (m.get("content") or "").strip()]
+    sticker_ctx, sticker_index = build_sticker_context(get_stickers())
+    if sticker_ctx:
+        messages.append({"role": "system", "content": sticker_ctx})
+
+    reply = chat_completion(chat_id, messages)
+    if reply is None:
+        reply = "ببخشید، یه مشکلی پیش اومد. بعداً دوباره امتحان کن."
+    add_to_history(chat_id, "assistant", reply)
+    return reply, sticker_index
 
 
 STICKER_TAG_RE = re.compile(r"<sticker\s+n=['\"]?(\d+)['\"]?\s*/?>")
+SSH_TAG_RE = re.compile(r"<ssh\s+host=(['\"])(.*?)\1(?:\s+port=(['\"])(\d+)\3)?>(.*?)</ssh>", re.S)
 
 
-def send_reply_with_actions(chat_id, reply, sticker_index=None, reply_to=None):
-    sent_sticker = False
+def execute_ssh(host, port, command):
+    if not SSH_PASSWORD and not SSH_KEY:
+        return None, "SSH is not configured (set SSH_PASSWORD or SSH_KEY env)"
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        connect_kwargs = {"hostname": host, "port": int(port), "username": SSH_USER, "timeout": 15}
+        if SSH_KEY:
+            with io.StringIO(SSH_KEY) as buf:
+                connect_kwargs["pkey"] = paramiko.RSAKey.from_private_key(buf)
+        else:
+            connect_kwargs["password"] = SSH_PASSWORD
+        client.connect(**connect_kwargs)
+        _in, out, err = client.exec_command(command, timeout=90)
+        stdout = out.read().decode("utf-8", "replace")
+        stderr = err.read().decode("utf-8", "replace")
+        code = out.channel.recv_exit_status()
+        combined = (stdout + (("\n" + stderr) if stderr else "")).strip()
+        return code, combined or "(no output)"
+    except Exception as e:
+        return None, f"SSH error: {e}"
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def send_reply_with_actions(chat_id, reply, sticker_index=None, reply_to=None, user_text=""):
+    sent_anything = False
     if sticker_index and STICKER_TAG_RE.search(reply):
         for m in STICKER_TAG_RE.finditer(reply):
             fid = sticker_index.get(int(m.group(1)))
             if fid and send_sticker(chat_id, fid, reply_to=reply_to):
-                sent_sticker = True
+                sent_anything = True
                 time.sleep(0.3)
         reply = STICKER_TAG_RE.sub("", reply).strip()
+
+    ssh_results = []
+    for m in SSH_TAG_RE.finditer(reply):
+        host = m.group(2)
+        port = int(m.group(4)) if m.group(4) else SSH_PORT
+        command = m.group(5).strip()
+        print(f"[SSH] {host}:{port} $ {command[:200]}", file=sys.stderr)
+        code, output = execute_ssh(host, port, command)
+        ssh_results.append((host, port, command, code, output))
+    if ssh_results:
+        reply = SSH_TAG_RE.sub("", reply).strip()
+        block = "\n\n".join(
+            f"$ ssh -p {port} {host}: {command}\n[exit {code}]\n{output}"
+            for host, port, command, code, output in ssh_results
+        )
+        messages = [m for m in build_ai_messages(chat_id) if (m.get("content") or "").strip()]
+        messages.append({
+            "role": "system",
+            "content": (
+                "You ran these commands over SSH for the user. Report the results clearly in the user's language:\n\n"
+                f"{block}\n\n"
+                "Give a concise summary of what ran and what it returned."
+            ),
+        })
+        final = chat_completion(chat_id, messages)
+        if final:
+            add_to_history(chat_id, "assistant", final)
+            reply = final
+        sent_anything = True
+
     if reply:
         send_long_message(chat_id, reply, reply_to=reply_to)
         return True
-    return sent_sticker
+    return sent_anything
 
 
 def handle_command(chat_id, command, message_id, arg=""):
@@ -664,6 +744,7 @@ def handle_command(chat_id, command, message_id, arg=""):
             "🧠 /model - لیست مدل‌های رایگان / انتخاب مدل\n"
             "🔎 /search <موضوع> - سرچ توی اینترنت\n"
             "🔗 /url <لینک> - باز کردن یه صفحه وب\n"
+            "🖥️ SSH - بهم بگو «برو روی فلان سرور و این دستور رو بزن» تا باهات حرف بزنم\n"
             "😎 /sticker - یه استیکر تصادفی بفرستم (از اونایی که دریافت کردم)\n"
             "📦 /stickerpack <نام> - یه پکیج استیکر کامل اضافه کنم\n"
             "💾 /clear - پاک کردن تاریخچه\n"
@@ -826,7 +907,7 @@ def handle_message(update):
             search_context = build_search_context(query)
 
     reply, sticker_index = ask_ai(chat_id, user_text, search_context)
-    send_reply_with_actions(chat_id, reply, sticker_index, reply_to=message_id)
+    send_reply_with_actions(chat_id, reply, sticker_index, reply_to=message_id, user_text=user_text)
 
 
 def poll_loop():
