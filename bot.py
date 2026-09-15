@@ -116,6 +116,10 @@ def load_chat(chat_id):
         defaults = {"history": [], "memory": [], "persona": "", "model": ""}
         for k, v in defaults.items():
             chat_data[chat_id].setdefault(k, v)
+        chat_data[chat_id]["history"] = [
+            m for m in chat_data[chat_id]["history"]
+            if m.get("content", "").strip()
+        ]
         return chat_data[chat_id]
 
 
@@ -137,6 +141,9 @@ def get_history(chat_id):
 
 
 def add_to_history(chat_id, role, content):
+    content = (content or "").strip()
+    if not content:
+        return
     data = load_chat(chat_id)
     data["history"].append({"role": role, "content": content})
     if len(data["history"]) > MAX_HISTORY * 2:
@@ -465,7 +472,7 @@ def ask_ai(chat_id, user_text, search_context=None):
     if note:
         add_to_memory(chat_id, note)
 
-    messages = build_ai_messages(chat_id, search_context)
+    messages = [m for m in build_ai_messages(chat_id, search_context) if (m.get("content") or "").strip()]
     headers = {
         "Authorization": f"Bearer {G4F_API_KEY}",
         "Content-Type": "application/json",
@@ -493,7 +500,11 @@ def ask_ai(chat_id, user_text, search_context=None):
             if resp.status_code != 200 or "choices" not in data:
                 print(f"[G4F WARN] model '{model}' failed ({resp.status_code}): {data}", file=sys.stderr)
                 continue
-            reply = data["choices"][0]["message"]["content"].strip()
+            content = data["choices"][0]["message"].get("content")
+            reply = (content or "").strip()
+            if not reply:
+                print(f"[G4F WARN] model '{model}' returned empty content", file=sys.stderr)
+                continue
             add_to_history(chat_id, "assistant", reply)
             return reply
         except Exception as e:
