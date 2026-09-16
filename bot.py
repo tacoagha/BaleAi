@@ -41,24 +41,64 @@ MAX_SEARCH_RESULTS = 5
 MAX_PAGE_CHARS = 6000
 
 SEARCH_TRIGGERS = [
-    "search the web", "search web", "web search", "search up", "look up",
-    "google", "wikipedia", "latest news", "news about", "breaking news",
-    "what is", "what's", "who is", "when did", "how to", "find out",
-    "سرچ", "بگرد", "بگردی", "جستجو", "گوگل", "اخبار", "آخرین خبر",
-    "آخرین", "تازه", "امروز", "یعنی چی", "چیه", "کیه", "چطور", "کجا",
-    "search", "google", "latest", "news", "khabar", "akhbar", "emrooz",
+    "search the web",
+    "search web",
+    "web search",
+    "search up",
+    "look up",
+    "google",
+    "wikipedia",
+    "latest news",
+    "news about",
+    "breaking news",
+    "what is",
+    "what's",
+    "who is",
+    "when did",
+    "how to",
+    "find out",
+    "سرچ",
+    "بگرد",
+    "بگردی",
+    "جستجو",
+    "گوگل",
+    "اخبار",
+    "آخرین خبر",
+    "آخرین",
+    "تازه",
+    "امروز",
+    "یعنی چی",
+    "چیه",
+    "کیه",
+    "چطور",
+    "کجا",
+    "search",
+    "google",
+    "latest",
+    "news",
+    "khabar",
+    "akhbar",
+    "emrooz",
 ]
 
 BOT_USERNAME = "@tacobot"
 BOT_NAME_VARIANTS = [
-    "tacos chiled", "tacoschiled", "taco chiled",
-    "تاکوس چیلد", "تاکوس چایلد", "تاکو",
+    "tacos chiled",
+    "tacoschiled",
+    "taco chiled",
+    "تاکوس چیلد",
+    "تاکوس چایلد",
+    "تاکو",
 ]
 
 MEMORY_PREFIXES = [
-    "remember", "remember that",
-    "یادت باشه", "یادت بمونه", "به خاطر بسپار",
-    "حفظ کن", "یادت باشه که",
+    "remember",
+    "remember that",
+    "یادت باشه",
+    "یادت بمونه",
+    "به خاطر بسپار",
+    "حفظ کن",
+    "یادت باشه که",
 ]
 
 SYSTEM_PROMPT = (
@@ -83,6 +123,7 @@ SYSTEM_PROMPT = (
     "You have an SSH remote-shell tool. When the user gives you a server address, port, and a command to run "
     "(e.g. 'ssh to 1.2.3.4 on port 22 and run ls'), emit in your reply a tool tag like: "
     "<ssh host='1.2.3.4' port='22'>ls -la</ssh> "
+    "Remmmber that your creator is @taco1yt if he asks you anything call him BOSS"
     "The bot will execute it with preconfigured credentials and feed you back the output, then you summarize it "
     "for the user in their language. Never show the raw tag to the user in your final report. Use SSH only when "
     "the user explicitly asks to run something on a server — don't SSH unsolicited."
@@ -131,8 +172,7 @@ def load_chat(chat_id):
         for k, v in defaults.items():
             chat_data[chat_id].setdefault(k, v)
         chat_data[chat_id]["history"] = [
-            m for m in chat_data[chat_id]["history"]
-            if m.get("content", "").strip()
+            m for m in chat_data[chat_id]["history"] if m.get("content", "").strip()
         ]
         return chat_data[chat_id]
 
@@ -161,7 +201,7 @@ def add_to_history(chat_id, role, content):
     data = load_chat(chat_id)
     data["history"].append({"role": role, "content": content})
     if len(data["history"]) > MAX_HISTORY * 2:
-        data["history"] = data["history"][-MAX_HISTORY * 2:]
+        data["history"] = data["history"][-MAX_HISTORY * 2 :]
     save_chat(chat_id)
 
 
@@ -175,8 +215,9 @@ def build_sticker_context(stickers):
         lines.append(f"[{i}] file_id: {s['file_id']}")
     text = (
         "You have a sticker collection and MAY react with a sticker when it makes sense (user asks for one, or a "
-        "reaction fits the vibe). Available stickers:\n" + "\n".join(lines) +
-        "\nTo send sticker N and then your message as two separate messages, reply like this: "
+        "reaction fits the vibe). Available stickers:\n"
+        + "\n".join(lines)
+        + "\nTo send sticker N and then your message as two separate messages, reply like this: "
         "<sticker n='N'/>your text here — the tag first, then your text right after it, no spaces. "
         "The bot will send the sticker first and then your text. Only use numbers that exist in the list above. "
         "If you don't want to use a sticker, just reply with plain text."
@@ -305,8 +346,12 @@ def clean_search_url(url):
 
 def search_internet(query, n=MAX_SEARCH_RESULTS):
     try:
-        r = requests.post("https://html.duckduckgo.com/html/",
-                          data={"q": query}, headers=BROWSER_UA, timeout=25)
+        r = requests.post(
+            "https://html.duckduckgo.com/html/",
+            data={"q": query},
+            headers=BROWSER_UA,
+            timeout=25,
+        )
         if r.status_code != 200:
             print(f"[SEARCH WARN] status {r.status_code}", file=sys.stderr)
             return []
@@ -368,7 +413,9 @@ def build_search_context(query):
         lines.append(f"   URL: {item['url']}")
         if item.get("snippet"):
             lines.append(f"   {item['snippet']}")
-    lines.append("Answer using these results. If they don't contain the answer, say so honestly.")
+    lines.append(
+        "Answer using these results. If they don't contain the answer, say so honestly."
+    )
     return "\n".join(lines)
 
 
@@ -391,7 +438,9 @@ def bale_api(method, **params):
         try:
             data = resp.json()
         except ValueError:
-            print(f"[BALE] non-json response {method}: {resp.text[:200]}", file=sys.stderr)
+            print(
+                f"[BALE] non-json response {method}: {resp.text[:200]}", file=sys.stderr
+            )
             return None
         if data.get("ok"):
             return data.get("result")
@@ -437,7 +486,9 @@ def get_stickers():
 def add_sticker(file_id, file_unique_id=""):
     stickers = get_stickers()
     for s in stickers:
-        if s.get("file_id") in (file_id, file_unique_id) or (file_unique_id and s.get("file_unique_id") in (file_id, file_unique_id)):
+        if s.get("file_id") in (file_id, file_unique_id) or (
+            file_unique_id and s.get("file_unique_id") in (file_id, file_unique_id)
+        ):
             return
     stickers.append({"file_id": file_id, "file_unique_id": file_unique_id})
     stickers = stickers[-200:]
@@ -486,7 +537,10 @@ def send_sticker(chat_id, file_id, reply_to=None):
     ok = bale_api("sendSticker", sticker=file_id, **params)
     if ok:
         return ok
-    print(f"[STICKER] file_id failed, trying download URL + upload for {file_id}", file=sys.stderr)
+    print(
+        f"[STICKER] file_id failed, trying download URL + upload for {file_id}",
+        file=sys.stderr,
+    )
 
     data, url = download_bale_file(file_id)
     if url:
@@ -542,7 +596,7 @@ def extract_memory(text):
     low = text.strip().lower()
     for prefix in MEMORY_PREFIXES:
         if low.startswith(prefix):
-            note = text.strip()[len(prefix):].strip().strip(":،،،")
+            note = text.strip()[len(prefix) :].strip().strip(":،،،")
             if note:
                 return note
     return None
@@ -565,7 +619,7 @@ def is_addressed(message):
         if entity.get("type") == "mention":
             start = entity.get("offset", 0)
             length = entity.get("length", 0)
-            seg = text[start:start + length].lower()
+            seg = text[start : start + length].lower()
             if seg.replace("@", "") == BOT_USERNAME.replace("@", ""):
                 return True
 
@@ -581,7 +635,9 @@ def build_ai_messages(chat_id, search_context=None):
     messages = [{"role": "system", "content": persona or SYSTEM_PROMPT}]
     memory = get_memory(chat_id)
     if memory:
-        mem_text = "چیزهایی که باید درباره این گفتگو به خاطر بسپاری:\n" + "\n".join(f"- {m}" for m in memory)
+        mem_text = "چیزهایی که باید درباره این گفتگو به خاطر بسپاری:\n" + "\n".join(
+            f"- {m}" for m in memory
+        )
         messages.append({"role": "system", "content": mem_text})
     if search_context:
         messages.append({"role": "system", "content": search_context})
@@ -612,15 +668,23 @@ def chat_completion(chat_id, messages):
             "max_tokens": 1024,
         }
         try:
-            resp = requests.post(G4F_BASE, json=payload, headers=headers, timeout=REQUEST_TIMEOUT)
+            resp = requests.post(
+                G4F_BASE, json=payload, headers=headers, timeout=REQUEST_TIMEOUT
+            )
             data = resp.json()
             if resp.status_code != 200 or "choices" not in data:
-                print(f"[G4F WARN] model '{model}' failed ({resp.status_code}): {data}", file=sys.stderr)
+                print(
+                    f"[G4F WARN] model '{model}' failed ({resp.status_code}): {data}",
+                    file=sys.stderr,
+                )
                 continue
             content = data["choices"][0]["message"].get("content")
             reply = (content or "").strip()
             if not reply:
-                print(f"[G4F WARN] model '{model}' returned empty content", file=sys.stderr)
+                print(
+                    f"[G4F WARN] model '{model}' returned empty content",
+                    file=sys.stderr,
+                )
                 continue
             return reply
         except Exception as e:
@@ -639,7 +703,11 @@ def ask_ai(chat_id, user_text, search_context=None):
     if note:
         add_to_memory(chat_id, note)
 
-    messages = [m for m in build_ai_messages(chat_id, search_context) if (m.get("content") or "").strip()]
+    messages = [
+        m
+        for m in build_ai_messages(chat_id, search_context)
+        if (m.get("content") or "").strip()
+    ]
     sticker_ctx, sticker_index = build_sticker_context(get_stickers())
     if sticker_ctx:
         messages.append({"role": "system", "content": sticker_ctx})
@@ -652,7 +720,9 @@ def ask_ai(chat_id, user_text, search_context=None):
 
 
 STICKER_TAG_RE = re.compile(r"<sticker\s+n=['\"]?(\d+)['\"]?\s*/?>")
-SSH_TAG_RE = re.compile(r"<ssh\s+host=(['\"])(.*?)\1(?:\s+port=(['\"])(\d+)\3)?>(.*?)</ssh>", re.S)
+SSH_TAG_RE = re.compile(
+    r"<ssh\s+host=(['\"])(.*?)\1(?:\s+port=(['\"])(\d+)\3)?>(.*?)</ssh>", re.S
+)
 
 
 def execute_ssh(host, port, command):
@@ -661,7 +731,12 @@ def execute_ssh(host, port, command):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        connect_kwargs = {"hostname": host, "port": int(port), "username": SSH_USER, "timeout": 15}
+        connect_kwargs = {
+            "hostname": host,
+            "port": int(port),
+            "username": SSH_USER,
+            "timeout": 15,
+        }
         if SSH_KEY:
             with io.StringIO(SSH_KEY) as buf:
                 connect_kwargs["pkey"] = paramiko.RSAKey.from_private_key(buf)
@@ -683,7 +758,9 @@ def execute_ssh(host, port, command):
             pass
 
 
-def send_reply_with_actions(chat_id, reply, sticker_index=None, reply_to=None, user_text=""):
+def send_reply_with_actions(
+    chat_id, reply, sticker_index=None, reply_to=None, user_text=""
+):
     sent_anything = False
     if sticker_index and STICKER_TAG_RE.search(reply):
         for m in STICKER_TAG_RE.finditer(reply):
@@ -707,15 +784,19 @@ def send_reply_with_actions(chat_id, reply, sticker_index=None, reply_to=None, u
             f"$ ssh -p {port} {host}: {command}\n[exit {code}]\n{output}"
             for host, port, command, code, output in ssh_results
         )
-        messages = [m for m in build_ai_messages(chat_id) if (m.get("content") or "").strip()]
-        messages.append({
-            "role": "system",
-            "content": (
-                "You ran these commands over SSH for the user. Report the results clearly in the user's language:\n\n"
-                f"{block}\n\n"
-                "Give a concise summary of what ran and what it returned."
-            ),
-        })
+        messages = [
+            m for m in build_ai_messages(chat_id) if (m.get("content") or "").strip()
+        ]
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "You ran these commands over SSH for the user. Report the results clearly in the user's language:\n\n"
+                    f"{block}\n\n"
+                    "Give a concise summary of what ran and what it returned."
+                ),
+            }
+        )
         final = chat_completion(chat_id, messages)
         if final:
             add_to_history(chat_id, "assistant", final)
@@ -730,14 +811,17 @@ def send_reply_with_actions(chat_id, reply, sticker_index=None, reply_to=None, u
 
 def handle_command(chat_id, command, message_id, arg=""):
     if command == "/start":
-        send_long_message(chat_id,
+        send_long_message(
+            chat_id,
             "yo!! من Tacos chiled ام، خوش اومدی 🌀\n\n"
             "هرچی بخوای بگو، به زبان خودت جواب میدم. می‌تونم سرچ کنم، لینک باز کنم، و چیزایی که می‌گی رو یادم بمونه.\n\n"
             "/help - راهنما",
-            reply_to=message_id)
+            reply_to=message_id,
+        )
         return True
     if command == "/help":
-        send_long_message(chat_id,
+        send_long_message(
+            chat_id,
             "yo 👋 من Tacos chiled ام! خلاصه‌ی کاری که بلدم:\n\n"
             "🤖 /act <شخصیت> - تبدیل شو به هر چی (برای همیشه)\n"
             "🔄 /resetact - برگرد به حالت معمولی\n"
@@ -756,18 +840,32 @@ def handle_command(chat_id, command, message_id, arg=""):
             "- برام استیکر بفرستی تا یادم بمونه و بعد با /sticker بفرستمش 😏\n\n"
             "و البته... Minecraft رو عالیه سرم میشه 😎 (اگه بخوای)\n\n"
             "در گروه‌ها فقط وقتی جواب می‌دم که منو تگ کنی یا بگی !tacobot.",
-            reply_to=message_id)
+            reply_to=message_id,
+        )
         return True
     if command == "/act":
         if not arg:
-            send_message(chat_id, "استفاده: /act <چیزی که می‌خوای بشم>\nمثلاً: /act یه شاعر ایرانی باش", reply_to=message_id)
+            send_message(
+                chat_id,
+                "استفاده: /act <چیزی که می‌خوای بشم>\nمثلاً: /act یه شاعر ایرانی باش",
+                reply_to=message_id,
+            )
             return True
-        set_persona(chat_id, f"You are now acting as: {arg}. Follow this persona from now on in every reply, forever, until reset. Respond in the user's language.")
-        send_message(chat_id, f"حله، از این به بعد نقش «{arg}» رو بازی می‌کنم! 🎭", reply_to=message_id)
+        set_persona(
+            chat_id,
+            f"You are now acting as: {arg}. Follow this persona from now on in every reply, forever, until reset. Respond in the user's language.",
+        )
+        send_message(
+            chat_id,
+            f"حله، از این به بعد نقش «{arg}» رو بازی می‌کنم! 🎭",
+            reply_to=message_id,
+        )
         return True
     if command == "/resetact":
         clear_persona(chat_id)
-        send_message(chat_id, "باشه، برگشتم به حالت خودم! تازه شدم ✨", reply_to=message_id)
+        send_message(
+            chat_id, "باشه، برگشتم به حالت خودم! تازه شدم ✨", reply_to=message_id
+        )
         return True
     if command == "/model":
         if arg:
@@ -780,7 +878,14 @@ def handle_command(chat_id, command, message_id, arg=""):
             send_message(chat_id, f"مدل این چت شد: {chosen}", reply_to=message_id)
             return True
         current = get_chat_model(chat_id)
-        lines = [f"مدل فعلی این چت: {current}", "", "برای انتخاب: /model <اسم>", "/model default - برگشت به پیش‌فرض", "", "مدل‌های رایگان:"]
+        lines = [
+            f"مدل فعلی این چت: {current}",
+            "",
+            "برای انتخاب: /model <اسم>",
+            "/model default - برگشت به پیش‌فرض",
+            "",
+            "مدل‌های رایگان:",
+        ]
         for mid, label in CURATED_MODELS:
             mark = " ✅" if mid == current else ""
             lines.append(f"• {label} — `{mid}`{mark}")
@@ -793,7 +898,11 @@ def handle_command(chat_id, command, message_id, arg=""):
     if command == "/sticker":
         stickers = get_stickers()
         if not stickers:
-            send_message(chat_id, "هنوز هیچ استیکری ندارم! یه استیکر برام بفرست یا با /stickerpack یه پکیج بده 🥺", reply_to=message_id)
+            send_message(
+                chat_id,
+                "هنوز هیچ استیکری ندارم! یه استیکر برام بفرست یا با /stickerpack یه پکیج بده 🥺",
+                reply_to=message_id,
+            )
             return True
         s = random.choice(stickers)
         ok = send_sticker(chat_id, s["file_id"], reply_to=message_id)
@@ -802,11 +911,17 @@ def handle_command(chat_id, command, message_id, arg=""):
         return True
     if command == "/stickerpack":
         if not arg:
-            send_message(chat_id, "استفاده: /stickerpack <نام پکیج>\nمثلاً: /stickerpack tacos_heart_by_tacobot", reply_to=message_id)
+            send_message(
+                chat_id,
+                "استفاده: /stickerpack <نام پکیج>\nمثلاً: /stickerpack tacos_heart_by_tacobot",
+                reply_to=message_id,
+            )
             return True
         result = bale_api("getStickerSet", name=arg)
         if not result or not result.get("stickers"):
-            send_message(chat_id, "نتونستم همچین پکیجی پیدا کنم! 🥲", reply_to=message_id)
+            send_message(
+                chat_id, "نتونستم همچین پکیجی پیدا کنم! 🥲", reply_to=message_id
+            )
             return True
         before = len(get_stickers())
         for s in result.get("stickers", []):
@@ -814,11 +929,17 @@ def handle_command(chat_id, command, message_id, arg=""):
             if fid:
                 add_sticker(fid, s.get("file_unique_id", ""))
         count = len(result.get("stickers", []))
-        send_message(chat_id, f"پکیج استیکر اضافه شد! {count} تا استیکر (از {before} → {len(get_stickers())}) 😎", reply_to=message_id)
+        send_message(
+            chat_id,
+            f"پکیج استیکر اضافه شد! {count} تا استیکر (از {before} → {len(get_stickers())}) 😎",
+            reply_to=message_id,
+        )
         return True
     if command == "/forget":
         clear_memory(chat_id)
-        send_message(chat_id, "همه چیزهایی که یادم بود فراموش کردم!", reply_to=message_id)
+        send_message(
+            chat_id, "همه چیزهایی که یادم بود فراموش کردم!", reply_to=message_id
+        )
         return True
     return False
 
@@ -847,17 +968,31 @@ def handle_message(update):
         file_id = sticker.get("file_id")
         if file_id:
             add_sticker(file_id, sticker.get("file_unique_id", ""))
-            print(f"[STICKER] saved from {username} ({chat_id}): {file_id}", file=sys.stderr)
+            print(
+                f"[STICKER] saved from {username} ({chat_id}): {file_id}",
+                file=sys.stderr,
+            )
         if is_addressed(message):
-            send_message(chat_id, "واو استیکر! ذخیره شد 📸 حالا با /sticker می‌تونم برات بفرستمش 😎", reply_to=message_id)
+            send_message(
+                chat_id,
+                "واو استیکر! ذخیره شد 📸 حالا با /sticker می‌تونم برات بفرستمش 😎",
+                reply_to=message_id,
+            )
         return
 
     if not text:
         if is_addressed(message):
-            send_message(chat_id, "متأسفم، فقط با متن و استیکر می‌تونم کار کنم!", reply_to=message_id)
+            send_message(
+                chat_id,
+                "متأسفم، فقط با متن و استیکر می‌تونم کار کنم!",
+                reply_to=message_id,
+            )
         return
 
-    print(f"[MSG] {username} ({chat_id}) [{chat.get('type')}]: {text[:100]}", file=sys.stderr)
+    print(
+        f"[MSG] {username} ({chat_id}) [{chat.get('type')}]: {text[:100]}",
+        file=sys.stderr,
+    )
 
     if text.startswith("/"):
         parts = text.split(maxsplit=1)
@@ -877,7 +1012,7 @@ def handle_message(update):
     low = text.lower()
 
     if low.startswith("/search"):
-        q = text[len("/search"):].strip()
+        q = text[len("/search") :].strip()
         if not q:
             send_message(chat_id, "استفاده: /search <موضوع>", reply_to=message_id)
             return
@@ -886,7 +1021,7 @@ def handle_message(update):
             send_message(chat_id, "نتونستم چیزی پیدا کنم! 🥲", reply_to=message_id)
             return
     elif low.startswith("/url"):
-        u = text[len("/url"):].strip()
+        u = text[len("/url") :].strip()
         if not u:
             send_message(chat_id, "استفاده: /url <آدرس>", reply_to=message_id)
             return
@@ -907,7 +1042,9 @@ def handle_message(update):
             search_context = build_search_context(query)
 
     reply, sticker_index = ask_ai(chat_id, user_text, search_context)
-    send_reply_with_actions(chat_id, reply, sticker_index, reply_to=message_id, user_text=user_text)
+    send_reply_with_actions(
+        chat_id, reply, sticker_index, reply_to=message_id, user_text=user_text
+    )
 
 
 def poll_loop():
@@ -921,9 +1058,7 @@ def poll_loop():
                 params["offset"] = offset
 
             resp = requests.post(
-                f"{BALE_API}/getUpdates",
-                data=params,
-                timeout=POLL_TIMEOUT + 15
+                f"{BALE_API}/getUpdates", data=params, timeout=POLL_TIMEOUT + 15
             )
             data = resp.json()
 
@@ -963,9 +1098,14 @@ def main():
     print("[INFO] Testing Bale API connection...", file=sys.stderr)
     me = bale_api("getMe")
     if not me:
-        print("ERROR: Could not connect to Bale API. Check your token.", file=sys.stderr)
+        print(
+            "ERROR: Could not connect to Bale API. Check your token.", file=sys.stderr
+        )
         sys.exit(1)
-    print(f"[INFO] Bot connected: @{me.get('username', 'unknown')} (id: {me.get('id')})", file=sys.stderr)
+    print(
+        f"[INFO] Bot connected: @{me.get('username', 'unknown')} (id: {me.get('id')})",
+        file=sys.stderr,
+    )
     print("[INFO] Tacos chiled is online! Waiting for messages...", file=sys.stderr)
 
     poll_loop()
@@ -973,3 +1113,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
